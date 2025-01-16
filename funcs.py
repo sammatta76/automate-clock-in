@@ -1,6 +1,14 @@
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import os
+from dotenv import load_dotenv
+
 
 
 def connect_to_google_sheets(json_file, spreadsheet_name):
@@ -113,8 +121,54 @@ def check_rows(worksheet):
             continue
     return
 
-# info = get_row_info(worksheet, 3)
+info = get_row_info(worksheet, 3)
 check_rows(worksheet)
+
+
+def login_to_portal():
+    # Initialize the Chrome browser (using Selenium Manager for driver setup)
+    driver = webdriver.Chrome()
+    # Load the .env file
+    load_dotenv()
+    USER_ID = os.getenv("USER_ID")
+    PIN = os.getenv("PIN")
+    try:
+        # Navigate to the website
+        driver.get("https://bweb.cbu.edu/PROD/twbkwbis.P_WWWLogin")
+
+        # Wait for the login fields to load
+        wait = WebDriverWait(driver, 10)
+        user_id_field = wait.until(EC.presence_of_element_located((By.NAME, "sid")))
+        pin_field = driver.find_element(By.NAME, "PIN")
+
+        # Input User ID and PIN
+        user_id_field.send_keys(USER_ID)
+        pin_field.send_keys(PIN)
+
+        # Press the login button
+        login_button = driver.find_element(By.XPATH, "//input[@value='Login']")
+        login_button.click()
+
+        # Optional: Wait for the next page to load (e.g., dashboard or error message)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        employee_services_link = driver.find_element(By.LINK_TEXT, "Employee Services")
+        employee_services_link.click()
+        time_sheet_link = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Time Sheet")))
+        time_sheet_link.click()
+
+
+
+    finally:
+        # Close the browser after a delay (for debugging purposes, increase the delay if needed)
+        input("Press Enter to close the browser...")
+        driver.quit()
+
+
+def navigator():
+    login_to_portal()
+
+
+
 
 
 
