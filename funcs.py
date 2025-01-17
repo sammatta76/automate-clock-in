@@ -10,7 +10,6 @@ import os
 from dotenv import load_dotenv
 
 
-
 def connect_to_google_sheets(json_file, spreadsheet_name):
     scope = ["https://spreadsheets.google.com/feeds",'https://www.googleapis.com/auth/spreadsheets',
               "https://www.googleapis.com/auth/drive.file","https://www.googleapis.com/auth/drive"]
@@ -19,13 +18,12 @@ def connect_to_google_sheets(json_file, spreadsheet_name):
 
     return client.open(spreadsheet_name).sheet1
 
-json_file = 'creds.json'  # Path to your service account JSON file
-spreadsheet_name = 'Timesheet'  # Name of your Google Spreadsheet
 
-# Connect to the spreadsheet
-worksheet = connect_to_google_sheets(json_file, spreadsheet_name)
-print("Successfully connected to the spreadsheet!")
-
+work_map = {
+    "language" : "cjobs_1_id",
+    "math" : "djobs_2_id",
+    "lab" : "djobs_3_id"
+}
 
 def get_current_time():
     """
@@ -44,31 +42,6 @@ def get_current_date():
     Returns the current date in MM/DD/YYYY format.
     """
     return datetime.now().strftime("%m/%d/%Y")
-
-
-def clock_and_update(worksheet, row_number, clock_in):
-    """
-    Simulates clocking in for a job and updates the row in the spreadsheet.
-
-    Args:
-        worksheet (gspread.models.Worksheet): The worksheet object.
-        row_number (int): The row number to update (1-indexed).
-
-    Returns:
-        None
-    """
-    # Fetch the row data
-    row = worksheet.row_values(row_number)
-    while ( len(row) < 7 ):
-        row.append("")
-    index = 4 if clock_in else 5
-    row[index] =  get_current_day() + " " + get_current_date() + " " + get_current_time()  # Update 'clock in' column (index 4)
-
-    # Update the spreadsheet row
-    worksheet.update(range_name= f'A{row_number}:G{row_number}', values = [row])
-
-    print(f"Clocked in for job '{row[1]}' at {get_current_time()}")
-
 
 def get_row_info(worksheet, row_number):
     row = worksheet.row_values(row_number)  # Fetch the row data
@@ -106,32 +79,14 @@ def are_times_equal(time1, time2):
 def are_words_equal(word1, word2):
     return word1.strip().lower() == word2.strip().lower()
 
-def check_rows(worksheet):
-    rows = worksheet.get_all_values()
-    for i in range(1, len(rows)+1):
-        try:
-            info = get_row_info(worksheet, i)
-            print(info)
-            if are_words_equal(info["day"] , get_current_day()) and not are_words_equal(info.get("note", ""), "skip"):
-                if are_times_equal(info["start"], get_current_time()):
-                    clock_and_update(worksheet, i, True)
-                elif are_times_equal(info["end"], get_current_time()):
-                    clock_and_update(worksheet, i, False)
-        except:
-            continue
-    return
-
-info = get_row_info(worksheet, 3)
-check_rows(worksheet)
-
-
-def login_to_portal():
+async def login_to_portal(job):
     # Initialize the Chrome browser (using Selenium Manager for driver setup)
     driver = webdriver.Chrome()
     # Load the .env file
     load_dotenv()
     USER_ID = os.getenv("USER_ID")
     PIN = os.getenv("PIN")
+    ans = True
     try:
         # Navigate to the website
         driver.get("https://bweb.cbu.edu/PROD/twbkwbis.P_WWWLogin")
@@ -155,17 +110,73 @@ def login_to_portal():
         employee_services_link.click()
         time_sheet_link = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Time Sheet")))
         time_sheet_link.click()
-
-
-
+        id = work_map[job]
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))  # Wait for the page to load
+        wait.until(EC.element_to_be_clickable((By.ID, id))).click()  # Use the variable 'id' to wait and click
+        wait.until(
+            EC.element_to_be_clickable((By.XPATH, '//*[@value="Time Sheet"]'))).click()  # Wait and click the element
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))  # Wait for the page to load
+        wait.until(
+            EC.element_to_be_clickable((By.XPATH, '//*[@alt="Clock In and Out"]'))).click()  # Wait and click
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))  # Wait for the page to load
+        wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@value="Save"]'))).click()  # Wait and click
+    except:
+        ans = False
     finally:
-        # Close the browser after a delay (for debugging purposes, increase the delay if needed)
-        input("Press Enter to close the browser...")
         driver.quit()
+        return ans
 
 
-def navigator():
-    login_to_portal()
+async def clock_and_update(worksheet, row_number, job,  clock_in):
+    """
+    Simulates clocking in for a job and updates the row in the spreadsheet.
+
+    Args:
+        worksheet (gspread.models.Worksheet): The worksheet object.
+        row_number (int): The row number to update (1-indexed).
+
+    Returns:
+        None
+    """
+    # Fetch the row data
+    ans = False
+    if job != "":
+        ans = await login_to_portal(job)
+    row = worksheet.row_values(row_number)
+    while ( len(row) < 7 ):
+        row.append("")
+    index = 4 if clock_in else 5
+    if ans:
+        row[index] =  get_current_day() + " " + get_current_date() + " " + get_current_time()  # Update 'clock in' column (index 4)
+    else:
+        row[index] = "Error"
+    # Update the spreadsheet row
+    worksheet.update(range_name= f'A{row_number}:G{row_number}', values = [row])
+
+async def check_rows(worksheet):
+    rows = worksheet.get_all_values()
+    for i in range(1, len(rows)+1):
+        try:
+            info = get_row_info(worksheet, i)
+            print(info)
+            job = info.get("job", "")
+            if are_words_equal(info["day"] , get_current_day()) and not are_words_equal(info.get("note", ""), "skip"):
+                if are_times_equal(info["start"], get_current_time()):
+                    await clock_and_update(worksheet, i, job,  True)
+                elif are_times_equal(info["end"], get_current_time()):
+                    await clock_and_update(worksheet, i, job, False)
+        except:
+            continue
+    return
+
+
+async def nav():
+    json_file = 'creds.json'  # Path to your service account JSON file
+    spreadsheet_name = 'Timesheet'  # Name of your Google Spreadsheet
+
+    # Connect to the spreadsheet
+    worksheet = connect_to_google_sheets(json_file, spreadsheet_name)
+    await check_rows(worksheet)
 
 
 
