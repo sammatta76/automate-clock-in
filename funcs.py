@@ -4,10 +4,12 @@ from oauth2client.service_account import ServiceAccountCredentials
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from datetime import datetime, timedelta
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import os
 from dotenv import load_dotenv
+import asyncio
 
 
 def connect_to_google_sheets(json_file, spreadsheet_name):
@@ -73,7 +75,7 @@ def are_times_equal(time1, time2):
 
     normalized_time1 = datetime.strptime(time1, format).strftime("%H:%M")
     normalized_time2 = datetime.strptime(time2, format).strftime("%H:%M")
-    print(normalized_time1 ,  normalized_time2)
+    print(normalized_time1, normalized_time2)
     return normalized_time1 == normalized_time2
 
 def are_words_equal(word1, word2):
@@ -148,10 +150,13 @@ async def clock_and_update(worksheet, row_number, job,  clock_in):
     index = 4 if clock_in else 5
     if ans:
         row[index] =  get_current_day() + " " + get_current_date() + " " + get_current_time()  # Update 'clock in' column (index 4)
+        print("clocked", "in" if clock_in else "out",  "for", row_number, job )
     else:
         row[index] = "Error"
+        print("error in clocked", "in" if clock_in else "out", "for", row_number, job )
     # Update the spreadsheet row
     worksheet.update(range_name= f'A{row_number}:G{row_number}', values = [row])
+    print("worksheet updated")
 
 async def check_rows(worksheet):
     rows = worksheet.get_all_values()
@@ -178,10 +183,23 @@ async def nav():
     worksheet = connect_to_google_sheets(json_file, spreadsheet_name)
     await check_rows(worksheet)
 
+async def wait_until_next_minute():
+    now = datetime.now()
+    if now.minute < 30:
+        next_run = now.replace(minute=30, second=0, microsecond=0)  # Set to the next 30-minute mark
+    else:
+        next_run = (now + timedelta(hours=1)).replace(minute=0, second=0,
+                                                      microsecond=0)  # Set to the top of the next hour
+    sleep_time = (next_run - now).total_seconds()
+    print(f"Sleeping for {sleep_time:.2f} seconds until {next_run}")
+    await asyncio.sleep(sleep_time)  # Use asyncio.sleep for async operations
 
 
 
-
-
+async def app():
+    print("app launched")
+    while True:
+        await wait_until_next_minute()  # Wait for the next minute
+        await nav()    # Call your async function
 
 
